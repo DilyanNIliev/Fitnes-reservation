@@ -83,6 +83,8 @@
 ├── assets/
 │   ├── favicon.svg
 │   └── img/              # SVG placeholder-и (hero, треньор, преди/след, блог, аватари)
+├── google-apps-script/
+│   └── Code.gs           # сървърният код за Google Calendar + Sheets + имейли
 ├── .nojekyll             # GitHub Pages да не минава файловете през Jekyll
 ├── robots.txt
 └── sitemap.xml
@@ -116,7 +118,8 @@ python3 -m http.server 8000
 | Име, телефон, имейл, адрес | `index.html` — секция „Контакти“, JSON-LD в `<head>`, `CONFIG` в `js/booking.js` |
 | Телефон за WhatsApp/Viber | `index.html` — търси `wa.me/359888123456` и `viber://chat?number=` |
 | Цени и пакети | `index.html` — секция `#services` + `<select id="package">` |
-| Работно време за резервации | `js/booking.js` → `CONFIG.hours` (0 = неделя … 6 = събота) |
+| Работно време за резервации | `js/booking.js` → `CONFIG.hours` **и** `WORKING_HOURS` в `Code.gs` (0 = неделя … 6 = събота) |
+| Цени за календара/таблицата | `js/booking.js` → `PACKAGES` |
 | Срок на промоцията | `js/main.js` → променливата `deadline` (по подразбиране: краят на текущия месец) |
 | Акцентен цвят | `css/style.css` → `--accent` в `:root` |
 | Снимки | замени файловете в `assets/img/` (виж по-долу) |
@@ -136,32 +139,47 @@ Placeholder-ите са SVG. Замени ги с реални снимки (JPG
 
 ---
 
-## 📧 Как да свържа истински имейл потвърждения
+## 📧 Google Calendar — свободни часове и запис на резервациите
 
-В момента резервациите работят в **демо режим**: пазят се в `localStorage` на браузъра и се
-показва UI за потвърждение + линкове към Google Calendar и `mailto:`. GitHub Pages е статичен
-хостинг и не може да изпраща имейли сам. Три безплатни варианта:
+Резервациите **не се пазят в браузъра**. Единственият източник на истина е Google Calendar
+на треньора, а връзката минава през Google Apps Script web app.
 
-**1. Formspree** (най-бързо) — регистрирай форма и в `js/booking.js`, в `form.addEventListener('submit', …)`,
-преди `openModal()` добави:
-
-```js
-fetch('https://formspree.io/f/ТВОЯТ_ID', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-  body: JSON.stringify({
-    name: data.name, phone: data.phone, email: data.email,
-    package: data.package, date: formatLong(data.date), time: data.time, goal: data.goal
-  })
-});
+```
+Сайтът                              Apps Script                Google
+──────────────────────────────────────────────────────────────────────
+избор на дата  ──GET ?date=…──────>  doGet()      ──────────>  Calendar
+               <──{busySlots:[…]}──               <──заети──
+потвърждение   ──POST (JSON)──────>  doPost()     ──────────>  Calendar + Sheets
+                                                  ──────────>  имейл до клиента и треньора
 ```
 
-**2. EmailJS** — изпраща имейл и до клиента, и до треньора, с шаблон.
+### Настройка
 
-**3. Google Apps Script + Google Sheets** — резервациите падат в таблица и се създава събитие
-в Google Calendar автоматично. Най-подходящо, ако искаш реален календар вместо демо часовете.
+1. Отвори [script.google.com](https://script.google.com) → **New project**
+2. Постави съдържанието на `google-apps-script/Code.gs`
+3. Смени горе в файла: `CALENDAR_ID`, `SHEET_ID` (по избор), `TRAINER_EMAIL`, `LOCATION`
+4. **Deploy → New deployment → Web app**
+   - *Execute as:* **Me**
+   - *Who has access:* **Anyone**
+5. Копирай генерирания Web App URL в `js/booking.js`:
 
----
+```js
+var GOOGLE_SCRIPT_CONFIG = {
+  enabled: true,
+  webAppUrl: "https://script.google.com/macros/s/.../exec"
+};
+```
+
+> ⚠️ **Важно:** списъкът `WORKING_HOURS` в `Code.gs` трябва да съвпада с `CONFIG.hours`
+> в `js/booking.js`. Скриптът връща като заети само часове, които са в неговия списък —
+> ако сайтът предлага 07:00, а скриптът не го познава, събитие в 07:00 няма да се отрази.
+
+### Как се държи сайтът
+
+- При избор на дата тегли заетите часове на живо и ги показва като недостъпни
+- `doPost` проверява за застъпване и отказва двойна резервация
+- Ако Календарът не отговори, часовете остават избираеми и се показва бележка,
+  че часът ще се потвърди по телефона — формата никога не блокира клиента
 
 ## ♿ Достъпност и SEO
 

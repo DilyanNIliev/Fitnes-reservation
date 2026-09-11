@@ -1,16 +1,31 @@
 /* =========================================================
    booking.js — календар, свободни часове, валидация, потвърждение
    ---------------------------------------------------------
-   Демо режим: заетите часове се генерират детерминистично за
-   всяка дата + вече направените резервации се пазят в localStorage.
-   За реален бекенд виж секция „Как да свържа истински имейл“ в README.md.
+   Заетите часове се четат НА ЖИВО от Google Calendar през
+   Google Apps Script web app:
+
+     GET  <webAppUrl>?date=YYYY-MM-DD  ->  { status: "success", busySlots: ["10:00", ...] }
+     POST <webAppUrl>  (text/plain, JSON body)  ->  създава събитие в Календара
+
+   Резервациите НЕ се пазят в браузъра — единственият източник на
+   истина е Google Calendar.
    ========================================================= */
 (function () {
   'use strict';
 
-  /* ---------- Настройки ---------- */
+  /* =========================================================
+     0. КОНФИГУРАЦИЯ НА GOOGLE APPS SCRIPT
+     ========================================================= */
+  var GOOGLE_SCRIPT_CONFIG = {
+    enabled: true,
+    // Заменете с Вашия генериран Web App URL:
+    webAppUrl: 'https://script.google.com/macros/s/AKfycbzwqelKebMwkjPqzMPIKiOGo3IdGJ-H9XClkHG6ZPzwCiPzdvtV4eIcAWi6Et3eTBhkjA/exec'
+  };
+
+  /* ---------- Настройки на графика ---------- */
   var CONFIG = {
     // Работно време по дни (0 = неделя ... 6 = събота). null = почивен ден.
+    // Часовете са през 1 астрономически час.
     hours: {
       0: null,
       1: ['07:00', '08:00', '09:00', '10:00', '17:00', '18:00', '19:00', '20:00'],
@@ -21,10 +36,21 @@
       6: ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00']
     },
     daysAhead: 60,          // колко напред може да се резервира
-    durationMin: 60,        // времетраене на тренировка (за Google Calendar)
-    storageKey: 'mk_bookings_v1',
+    durationMin: 60,        // времетраене на тренировка (1 час)
+    leadTimeHours: 2,       // най-ранна резервация за днес
     trainerEmail: 'hello@martinkovachev.bg',
     location: 'Fit Studio, бул. „Витоша“ 100, София'
+  };
+
+  // Пакетите — цена и категория отиват към Календара и таблицата.
+  var PACKAGES = {
+    'Безплатна консултация': { category: 'Консултация', price: 0 },
+    'Единична тренировка':   { category: 'Индивидуална', price: 60 },
+    'Месечен абонамент':     { category: 'Индивидуална', price: 390 },
+    'Онлайн план':           { category: 'Онлайн', price: 150 },
+    'Групова тренировка':    { category: 'Групова', price: 25 },
+    'Групов абонамент':      { category: 'Групова', price: 180 },
+    'Bootcamp на открито':   { category: 'Групова', price: 20 }
   };
 
   var MONTHS = ['Януари', 'Февруари', 'Март', 'Април', 'Май', 'Юни',
@@ -47,6 +73,8 @@
   var viewDate = new Date(today.getFullYear(), today.getMonth(), 1);
   var selectedDate = null;
   var selectedTime = null;
+  var currentBusySlots = [];      // заети часове за избраната дата (от Календара)
+  var loadFailed = false;         // ако Календарът не отговори
 
   /* ---------- Помощни ---------- */
   function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
@@ -60,32 +88,15 @@
     return d.getDate() + ' ' + MONTHS[d.getMonth()].toLowerCase() + ' ' + d.getFullYear() + ' г. (' + wd + ')';
   }
 
-  function loadBookings() {
-    try { return JSON.parse(localStorage.getItem(CONFIG.storageKey)) || {}; }
-    catch (e) { return {}; }
-  }
-
-  function saveBooking(dateKey, time) {
-    var all = loadBookings();
-    all[dateKey] = all[dateKey] || [];
-    if (all[dateKey].indexOf(time) === -1) all[dateKey].push(time);
-    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(all)); } catch (e) { /* private mode */ }
-  }
-
-  // Детерминистичен „зает“ статус, за да изглежда графикът реалистично в демото.
-  function pseudoBusy(dateKey, time) {
-    var s = dateKey + time, h = 0;
-    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 9973;
-    return h % 10 < 4; // ~40% заети
-  }
-
+  // Часовете по график за дадена дата (без да знаем кои са заети).
   function slotsFor(date) {
     var list = CONFIG.hours[date.getDay()];
     if (!list) return [];
     if (!sameDay(date, today)) return list.slice();
-    // За днес показваме само часове поне 2 часа напред.
+
+    // За днес показваме само часове поне N часа напред.
     var limit = new Date();
-    limit.setHours(limit.getHours() + 2);
+    limit.setHours(limit.getHours() + CONFIG.leadTimeHours);
     return list.filter(function (t) {
       var parts = t.split(':');
       var d = new Date(date);
@@ -94,18 +105,43 @@
     });
   }
 
-  function freeSlotsFor(date) {
-    var booked = loadBookings()[key(date)] || [];
-    return slotsFor(date).filter(function (t) {
-      return booked.indexOf(t) === -1 && !pseudoBusy(key(date), t);
-    });
+  // Работен ден ли е (дали изобщо има часове по график).
+  function isWorkingDay(date) {
+    return date >= today && date <= maxDate && slotsFor(date).length > 0;
   }
 
-  function isSelectable(date) {
-    return date >= today && date <= maxDate && freeSlotsFor(date).length > 0;
+  /* =========================================================
+     1. ЗАЕТИ ЧАСОВЕ ОТ GOOGLE CALENDAR
+     ========================================================= */
+  function fetchBusySlots(dateStr) {
+    currentBusySlots = [];
+    loadFailed = false;
+
+    if (!GOOGLE_SCRIPT_CONFIG.enabled || !GOOGLE_SCRIPT_CONFIG.webAppUrl) {
+      return Promise.resolve();
+    }
+
+    var url = GOOGLE_SCRIPT_CONFIG.webAppUrl + '?date=' + encodeURIComponent(dateStr);
+
+    return fetch(url)
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        if (data && data.status === 'success' && Array.isArray(data.busySlots)) {
+          currentBusySlots = data.busySlots;
+        } else {
+          currentBusySlots = [];
+        }
+      })
+      .catch(function (err) {
+        console.warn('Не успя да зареди заетите часове от Календара:', err);
+        currentBusySlots = [];
+        loadFailed = true;
+      });
   }
 
-  /* ---------- Рендер на календара ---------- */
+  /* =========================================================
+     2. КАЛЕНДАР
+     ========================================================= */
   function renderCalendar() {
     var year = viewDate.getFullYear();
     var month = viewDate.getMonth();
@@ -133,21 +169,20 @@
         btn.textContent = dayNum;
         btn.setAttribute('role', 'gridcell');
 
-        var free = isSelectable(date);
-        btn.disabled = !free;
+        var open = isWorkingDay(date);
+        btn.disabled = !open;
 
         if (sameDay(date, today)) btn.classList.add('is-today');
         if (sameDay(date, selectedDate)) btn.classList.add('is-selected');
 
-        if (free) {
-          var count = freeSlotsFor(date).length;
-          btn.setAttribute('aria-label', formatLong(date) + ' — ' + count + ' свободни часа');
+        if (open) {
+          btn.setAttribute('aria-label', formatLong(date) + ' — приемам резервации');
           var dot = document.createElement('span');
           dot.className = 'day__dot';
           btn.appendChild(dot);
           btn.addEventListener('click', function () { selectDate(date); });
         } else {
-          btn.setAttribute('aria-label', formatLong(date) + ' — няма свободни часове');
+          btn.setAttribute('aria-label', formatLong(date) + ' — почивен ден');
         }
 
         grid.appendChild(btn);
@@ -158,13 +193,26 @@
     nextBtn.disabled = new Date(year, month + 1, 1) > maxDate;
   }
 
-  /* ---------- Избор на дата и час ---------- */
+  /* =========================================================
+     3. ИЗБОР НА ДАТА И ЧАС
+     ========================================================= */
   function selectDate(date) {
     selectedDate = date;
     selectedTime = null;
     renderCalendar();
-    renderSlots();
     updateSummary();
+
+    renderLoadingSlots();
+    fetchBusySlots(key(date)).then(function () {
+      // Ако потребителят е сменил датата, докато заявката се е изпълнявала —
+      // резултатът вече е неактуален.
+      if (!sameDay(date, selectedDate)) return;
+      renderSlots();
+    });
+  }
+
+  function renderLoadingSlots() {
+    slotsBox.innerHTML = '<p class="slots__empty">Проверявам свободните часове в календара…</p>';
   }
 
   function renderSlots() {
@@ -176,7 +224,6 @@
     }
 
     var all = slotsFor(selectedDate);
-    var free = freeSlotsFor(selectedDate);
 
     if (!all.length) {
       slotsBox.innerHTML = '<p class="slots__empty">За тази дата няма часове. Избери друг ден.</p>';
@@ -187,20 +234,29 @@
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'slot';
+      var isBusy = currentBusySlots.indexOf(time) !== -1;
       btn.textContent = time;
-      var isFree = free.indexOf(time) !== -1;
-      btn.disabled = !isFree;
-      btn.setAttribute('aria-label', time + (isFree ? ' — свободен' : ' — зает'));
+      btn.disabled = isBusy;
+      btn.setAttribute('aria-label', time + (isBusy ? ' — зает' : ' — свободен'));
 
-      btn.addEventListener('click', function () {
-        selectedTime = time;
-        slotsBox.querySelectorAll('.slot').forEach(function (s) { s.classList.remove('is-selected'); });
-        btn.classList.add('is-selected');
-        updateSummary();
-      });
+      if (!isBusy) {
+        btn.addEventListener('click', function () {
+          selectedTime = time;
+          slotsBox.querySelectorAll('.slot').forEach(function (s) { s.classList.remove('is-selected'); });
+          btn.classList.add('is-selected');
+          updateSummary();
+        });
+      }
 
       slotsBox.appendChild(btn);
     });
+
+    if (loadFailed) {
+      var note = document.createElement('p');
+      note.className = 'slots__empty';
+      note.textContent = 'Не успях да проверя календара в момента — ще потвърдим часа по телефона.';
+      slotsBox.appendChild(note);
+    }
   }
 
   function updateSummary() {
@@ -227,7 +283,9 @@
   });
   document.getElementById('package').addEventListener('change', updateSummary);
 
-  /* ---------- Валидация ---------- */
+  /* =========================================================
+     4. ВАЛИДАЦИЯ
+     ========================================================= */
   function setError(id, message) {
     var box = document.getElementById('err-' + id);
     var input = document.getElementById(id);
@@ -267,7 +325,9 @@
     if (el) el.addEventListener('input', function () { setError(id, ''); });
   });
 
-  /* ---------- Модал ---------- */
+  /* =========================================================
+     5. МОДАЛ
+     ========================================================= */
   var modal = document.getElementById('modal');
   var modalBox = modal ? modal.querySelector('.modal__box') : null;
   var lastFocused = null;
@@ -294,7 +354,34 @@
     });
   }
 
-  /* ---------- Google Calendar + имейл ---------- */
+  /* =========================================================
+     6. ИЗПРАЩАНЕ КЪМ GOOGLE APPS SCRIPT (Calendar + Sheets)
+     ========================================================= */
+  function sendToGoogleAppsScript(payload) {
+    if (!GOOGLE_SCRIPT_CONFIG.enabled ||
+        !GOOGLE_SCRIPT_CONFIG.webAppUrl ||
+        GOOGLE_SCRIPT_CONFIG.webAppUrl === 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL') {
+      console.warn('Google Apps Script URL не е настроен!');
+      return Promise.resolve({ skipped: true });
+    }
+
+    // Използваме text/plain, за да избегнем CORS пре-флайт заявки от браузъра.
+    return fetch(GOOGLE_SCRIPT_CONFIG.webAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function (response) {
+      console.log('Успешно изпратено към Google Apps Script!');
+      return response;
+    }).catch(function (err) {
+      console.error('Грешка при изпращане към Google Apps Script:', err);
+      throw err;
+    });
+  }
+
+  /* =========================================================
+     7. ЛИНКОВЕ — Google Calendar + имейл
+     ========================================================= */
   function gcalDates(date, time) {
     var parts = time.split(':');
     var start = new Date(date);
@@ -309,13 +396,13 @@
   }
 
   function buildLinks(data) {
-    var title = 'Тренировка с Мартин Ковачев — ' + data.package;
+    var title = 'Тренировка с Мартин Ковачев — ' + data.serviceName;
     var details = 'Резервация за ' + data.name + '\nТелефон: ' + data.phone +
-      '\nПакет: ' + data.package + (data.goal ? '\nБележка: ' + data.goal : '');
+      '\nПакет: ' + data.serviceName + (data.notes ? '\nБележка: ' + data.notes : '');
 
     var gcal = 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
       '&text=' + encodeURIComponent(title) +
-      '&dates=' + gcalDates(data.date, data.time) +
+      '&dates=' + gcalDates(selectedDateOf(data), data.rawTime) +
       '&details=' + encodeURIComponent(details) +
       '&location=' + encodeURIComponent(CONFIG.location);
 
@@ -323,19 +410,26 @@
       '?subject=' + encodeURIComponent('Нова резервация — ' + data.name) +
       '&body=' + encodeURIComponent(
         'Здравей, Мартин,\n\nБих искал/а да запазя тренировка:\n\n' +
-        'Дата: ' + formatLong(data.date) + '\n' +
+        'Дата: ' + data.dateFormatted + '\n' +
         'Час: ' + data.time + '\n' +
-        'Пакет: ' + data.package + '\n' +
+        'Пакет: ' + data.serviceName + '\n' +
         'Име: ' + data.name + '\n' +
         'Телефон: ' + data.phone + '\n' +
         'Имейл: ' + data.email + '\n' +
-        (data.goal ? 'Бележка: ' + data.goal + '\n' : '') +
+        (data.notes ? 'Бележка: ' + data.notes + '\n' : '') +
         '\nПоздрави,\n' + data.name);
 
     return { gcal: gcal, mail: mail };
   }
 
-  /* ---------- Изпращане ---------- */
+  function selectedDateOf(data) {
+    var p = data.rawDate.split('-');
+    return new Date(+p[0], +p[1] - 1, +p[2]);
+  }
+
+  /* =========================================================
+     8. SUBMIT
+     ========================================================= */
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     if (!validate()) {
@@ -345,40 +439,64 @@
       return;
     }
 
-    var data = {
+    var pkgName = document.getElementById('package').value;
+    var pkgInfo = PACKAGES[pkgName] || { category: 'Тренировка', price: '' };
+
+    var payload = {
       name: document.getElementById('name').value.trim(),
       phone: document.getElementById('phone').value.trim(),
       email: document.getElementById('email').value.trim(),
-      package: document.getElementById('package').value,
-      goal: document.getElementById('goal').value.trim(),
-      date: selectedDate,
-      time: selectedTime
+      notes: document.getElementById('goal').value.trim(),
+      categoryLabel: pkgInfo.category,
+      serviceName: pkgName,
+      dateFormatted: formatLong(selectedDate),
+      time: selectedTime,
+      rawDate: key(selectedDate),
+      rawTime: selectedTime,
+      duration: CONFIG.durationMin,
+      price: pkgInfo.price
     };
 
-    saveBooking(key(data.date), data.time);
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var originalLabel = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Изпращам…';
 
-    var details = document.getElementById('modal-details');
-    details.innerHTML =
-      '<div><b>Дата:</b> ' + formatLong(data.date) + '</div>' +
-      '<div><b>Час:</b> ' + data.time + ' ч. (' + CONFIG.durationMin + ' мин)</div>' +
-      '<div><b>Пакет:</b> ' + data.package + '</div>' +
-      '<div><b>Име:</b> ' + data.name + '</div>' +
-      '<div><b>Локация:</b> ' + CONFIG.location + '</div>';
+    sendToGoogleAppsScript(payload)
+      .catch(function () { /* грешката вече е логната — показваме потвърждението */ })
+      .then(function () {
+        var details = document.getElementById('modal-details');
+        details.innerHTML =
+          '<div><b>Дата:</b> ' + payload.dateFormatted + '</div>' +
+          '<div><b>Час:</b> ' + payload.time + ' ч. (' + CONFIG.durationMin + ' мин)</div>' +
+          '<div><b>Пакет:</b> ' + payload.serviceName + '</div>' +
+          '<div><b>Име:</b> ' + payload.name + '</div>' +
+          '<div><b>Локация:</b> ' + CONFIG.location + '</div>';
 
-    document.getElementById('modal-text').textContent =
-      'Изпратихме потвърждение на ' + data.email + '. Ще се чуем на ' + data.phone + ' за финално потвърждение.';
+        document.getElementById('modal-text').textContent =
+          'Записахме часа в календара и изпратихме потвърждение на ' + payload.email +
+          '. Ще се чуем на ' + payload.phone + ' за финално потвърждение.';
 
-    var links = buildLinks(data);
-    document.getElementById('gcal-link').href = links.gcal;
-    document.getElementById('mail-link').href = links.mail;
+        var links = buildLinks(payload);
+        document.getElementById('gcal-link').href = links.gcal;
+        document.getElementById('mail-link').href = links.mail;
 
-    openModal();
+        openModal();
 
-    form.reset();
-    selectedTime = null;
-    renderCalendar();
-    renderSlots();
-    updateSummary();
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
+
+        var bookedDate = selectedDate;
+        form.reset();
+        selectedTime = null;
+        updateSummary();
+
+        // Презареждаме заетите часове, за да излезе новият час като зает.
+        renderLoadingSlots();
+        fetchBusySlots(key(bookedDate)).then(function () {
+          if (sameDay(bookedDate, selectedDate)) renderSlots();
+        });
+      });
   });
 
   /* ---------- Старт ---------- */
