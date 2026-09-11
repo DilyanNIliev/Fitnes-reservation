@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://dilyanniliev.github.io/Fitnes-reservation/sitemap.xml

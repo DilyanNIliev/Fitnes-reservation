@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" width="800" height="1000" role="img"><defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#22262C"/><stop offset="1" stop-color="#0D1014"/>
+</linearGradient>
+<radialGradient id="glow" cx="0.6" cy="0.58" r="0.75">
+  <stop offset="0" stop-color="#7C8794" stop-opacity="0.3"/>
+  <stop offset="1" stop-color="#7C8794" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#000" stop-opacity="0"/>
+  <stop offset="1" stop-color="#000" stop-opacity="0.55"/>
+</linearGradient>
+</defs><rect width="800" height="1000" fill="url(#bg)"/><rect x="-229" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 -229 0)"/><rect x="-114" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 -114 0)"/><rect x="0" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 0 0)"/><rect x="114" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 114 0)"/><rect x="229" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 229 0)"/><rect x="343" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 343 0)"/><rect x="457" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 457 0)"/><rect x="571" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 571 0)"/><rect x="686" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 686 0)"/><rect x="800" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 800 0)"/><rect x="914" y="-80" width="31" height="1160" fill="#ffffff" opacity="0.03" transform="rotate(14 914 0)"/><rect width="800" height="1000" fill="url(#glow)"/><g transform="translate(400.0,940.0) scale(2.3)" fill="#05070A" opacity="0.9"><circle cx="0" cy="-118" r="25"/><rect x="-26" y="-92" width="52" height="62" rx="24"/><rect x="-56" y="-70" width="34" height="17" rx="8"/><rect x="22" y="-70" width="34" height="17" rx="8"/><rect x="-30" y="-34" width="24" height="52" rx="12" transform="rotate(10 -18 -34)"/><rect x="8" y="-34" width="24" height="52" rx="12" transform="rotate(-10 20 -34)"/><rect x="-46" y="16" width="92" height="14" rx="7"/></g><rect width="800" height="1000" fill="url(#fade)"/><text x="400.0" y="962" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="60" font-weight="bold" fill="#ffffff" opacity="0.30" letter-spacing="4">ПРЕДИ</text></svg>
