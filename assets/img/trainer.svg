@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1100" width="900" height="1100" role="img"><defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#1A1F26"/><stop offset="1" stop-color="#0A0C0F"/>
+</linearGradient>
+<radialGradient id="glow" cx="0.6" cy="0.58" r="0.75">
+  <stop offset="0" stop-color="#D2FF3A" stop-opacity="0.45"/>
+  <stop offset="1" stop-color="#D2FF3A" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#000" stop-opacity="0"/>
+  <stop offset="1" stop-color="#000" stop-opacity="0.55"/>
+</linearGradient>
+</defs><rect width="900" height="1100" fill="url(#bg)"/><rect x="-257" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 -257 0)"/><rect x="-129" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 -129 0)"/><rect x="0" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 0 0)"/><rect x="129" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 129 0)"/><rect x="257" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 257 0)"/><rect x="386" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 386 0)"/><rect x="514" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 514 0)"/><rect x="643" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 643 0)"/><rect x="771" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 771 0)"/><rect x="900" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 900 0)"/><rect x="1029" y="-80" width="35" height="1260" fill="#ffffff" opacity="0.03" transform="rotate(14 1029 0)"/><rect width="900" height="1100" fill="url(#glow)"/><g transform="translate(450.0,1045.0) scale(2.6)" fill="#05070A" opacity="0.95"><circle cx="0" cy="-118" r="25"/><rect x="-26" y="-92" width="52" height="62" rx="24"/><rect x="-56" y="-70" width="34" height="17" rx="8"/><rect x="22" y="-70" width="34" height="17" rx="8"/><rect x="-30" y="-34" width="24" height="52" rx="12" transform="rotate(10 -18 -34)"/><rect x="8" y="-34" width="24" height="52" rx="12" transform="rotate(-10 20 -34)"/><rect x="-46" y="16" width="92" height="14" rx="7"/></g><rect x="0" y="1090" width="900" height="10" fill="#D2FF3A" opacity="0.9"/><rect width="900" height="1100" fill="url(#fade)"/></svg>
